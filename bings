@@ -128,7 +128,8 @@ s_iter = iter_strings_from_file_list(file_list, args.min[0])
 if args.interactive:
 	selection = iterfzf(s_iter, multi=True)
 	if selection != None: 
-		print(selection, "\r")
+		for s in selection:
+			print(s)
 else:
 	for s in s_iter:
 		print(s)
