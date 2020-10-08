@@ -70,6 +70,7 @@ def yield_utf_8_strings(f, f_path, min_chars):
 	f.seek(0)
 
 
+"""
 def yield_utf_16_be_strings(f, f_path, min_chars):
 	# chars can be 2 or 4 bytes
 	bs = b''
@@ -92,6 +93,54 @@ def yield_utf_16_be_strings(f, f_path, min_chars):
 			bs = b''
 			old_ps = ''
 	f.seek(0)
+"""
+
+def yield_utf_16_be_strings(f, f_path, min_chars):
+	# chars can be 2 or 4 bytes
+	bs = b''
+	old_ps = ''
+	while (b := f.read(1)):
+		b += f.peek(1)[0:1]
+		#print(b, len(b))
+		i = int.from_bytes(b,'big')
+		# byte ranges for 2 byte utf-16-be chars
+		short = (i >= 0x0000 and i <= 0xD7FF) or (i >= 0xE000 and i <= 0xFFFF)
+		if not short:
+			b += f.peek(3)[1:3]
+
+		printable, ps = is_printable((bs + b), 'utf-16-be')
+		if printable:
+			bs += b
+			old_ps = ps
+			f.seek(1 if short else 3, os.SEEK_CUR)
+		elif len(old_ps) > min_chars:
+			yield f_path + "::UTF-16-BE::" + old_ps
+			bs = b''
+			old_ps = ''
+	f.seek(0)
+
+def yield_utf_16_le_strings(f, f_path, min_chars):
+	# chars can be 2 or 4 bytes
+	bs = b''
+	old_ps = ''
+	while (b := f.read(1)):
+		b += f.peek(1)[0:1]
+		i = int.from_bytes(b,'little')
+		# byte ranges for 2 byte utf-16-le chars
+		short = (i >= 0x0000 and i <= 0xD7FF) or (i >= 0xE000 and i <= 0xFFFF)
+		if not short:
+			b += f.peek(3)[1:3]
+
+		printable, ps = is_printable((bs + b), 'utf-16-le')
+		if printable:
+			bs += b
+			old_ps = ps
+			f.seek(1 if short else 3, os.SEEK_CUR)
+		elif len(old_ps) > min_chars:
+			yield f_path + "::UTF-16-LE::" + old_ps
+			bs = b''
+			old_ps = ''
+	f.seek(0)
 
 
 def is_printable(bs, encoding):
@@ -109,6 +158,7 @@ def iter_strings_from_file_list(file_list, min_chars):
 			yield from yield_ascii_strings(f, f_path, min_chars)
 			yield from yield_utf_8_strings(f, f_path, min_chars)
 			yield from yield_utf_16_be_strings(f, f_path, min_chars)
+			yield from yield_utf_16_le_strings(f, f_path, min_chars)
 
 
 
