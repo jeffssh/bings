@@ -2,7 +2,8 @@
 
 usage: bings [-h] [-i] [-r] [-m MIN] file [file ...]
 
-A better strings
+Better `strings`
+Supports UTF-8, ASCII, UTF-16-BE, and UTF-16-LE
 
 positional arguments: \
   file               file(s)/dir(s) to parse
