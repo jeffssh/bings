@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+import argparse, glob, os
+from iterfzf import iterfzf
+
+
+def parse_files(files, recursive):
+	file_list = []
+	for f_path in args.files:
+		if os.path.isdir(f_path):
+			dir_list = glob.glob(f_path + "/*")
+			for f in dir_list:
+				if not os.path.isdir(f):
+					file_list.append(f)
+
+			if recursive and dir_list:
+				files = [f for f in glob.glob(f_path + "/**/*", recursive=True)]
+				for f in files:
+					if not os.path.isdir(f):
+						file_list.append(f)
+
+		elif os.path.isfile(f_path):
+			file_list.append(f_path)
+			
+	return file_list
+
+
+def yield_ascii_strings(f, f_path, min_chars):
+	bs = b''
+	old_ps = ''
+	while (b := f.read(1)):
+		printable, ps = is_printable((bs + b), 'ascii')
+		if printable:
+			bs += b
+			old_ps = ps
+		elif len(old_ps) > min_chars:
+			yield f_path + "::ASCII::" + old_ps
+			bs = b''
+			old_ps = ''
+	f.seek(0)
+
+
+def yield_utf_8_strings(f, f_path, min_chars):
+	# can be 1 to 4 bytes
+	bs = b''
+	old_ps = ''
+	while (b := f.read(1)):
+		ib = b[0]
+		num_peek = 0
+		# first byte contains length information for full char
+		if ib >> 5 == 0xC0:
+			# 2 char
+			num_peek = 1			
+		elif ib >> 4 == 0xE0:
+			# 3 char
+			num_peek = 2
+		elif ib >> 3 == 0xF0:
+			# 4 char
+			num_peek = 3
+			
+		if num_peek: b += f.peek(num_peek)[0:num_peek]
+		printable, ps = is_printable((bs + b), 'utf-8')
+		if printable:
+			bs += b
+			old_ps = ps
+			if num_peek: f.seek(num_peek, os.SEEK_CUR) 
+		elif len(old_ps) > min_chars:
+			yield f_path + "::UTF-8::" + old_ps
+			bs = b''
+			old_ps = ''
+	f.seek(0)
+
+
+def yield_utf_16_be_strings(f, f_path, min_chars):
+	# chars can be 2 or 4 bytes
+	bs = b''
+	old_ps = ''
+	while (b := f.read(1)):
+		b += f.peek(1)[0:1]
+		#print(b, len(b))
+		i = int.from_bytes(b,'big')
+		# byte ranges for 2 byte utf-16-be chars
+		short = (i >= 0x0000 and i <= 0xD7FF) or (i >= 0xE000 and i <= 0xFFFF)
+		if not short:
+			b += f.peek(3)[1:3]
+
+		printable, ps = is_printable((bs + b), 'utf-16-be')
+		if printable:
+			bs += b
+			old_ps = ps
+			f.seek(1 if short else 3, os.SEEK_CUR)
+		elif len(old_ps) > min_chars:
+			yield f_path + "::UTF-16-BE::" + old_ps
+			bs = b''
+			old_ps = ''
+	f.seek(0)
+
+
+def yield_utf_16_le_strings(f, f_path, min_chars):
+	# chars can be 2 or 4 bytes
+	bs = b''
+	old_ps = ''
+	while (b := f.read(1)):
+		b += f.peek(1)[0:1]
+		i = int.from_bytes(b,'little')
+		# byte ranges for 2 byte utf-16-le chars
+		short = (i >= 0x0000 and i <= 0xD7FF) or (i >= 0xE000 and i <= 0xFFFF)
+		if not short:
+			b += f.peek(3)[1:3]
+
+		printable, ps = is_printable((bs + b), 'utf-16-le')
+		if printable:
+			bs += b
+			old_ps = ps
+			f.seek(1 if short else 3, os.SEEK_CUR)
+		elif len(old_ps) > min_chars:
+			yield f_path + "::UTF-16-LE::" + old_ps
+			bs = b''
+			old_ps = ''
+	f.seek(0)
+
+
+def is_printable(bs, encoding):
+	try: 
+		ps = bs.decode(encoding)
+		return ps.isprintable(), ps
+	except:
+		return False, ""
+
+
+def iter_strings_from_file_list(file_list, min_chars):
+	for f_path in file_list:
+		with open(f_path,'rb') as f:
+			yield from yield_ascii_strings(f, f_path, min_chars)
+			yield from yield_utf_8_strings(f, f_path, min_chars)
+			yield from yield_utf_16_be_strings(f, f_path, min_chars)
+			yield from yield_utf_16_le_strings(f, f_path, min_chars)
+
+
+
+parser = argparse.ArgumentParser(prog='bings',description='A better strings')
+parser.add_argument('files', metavar='file', nargs='+', help='file(s)/dir(s) to parse')
+parser.add_argument('-i', '--interactive', action='store_true', 
+					help='Interactively search strings (powered by fzf)')
+parser.add_argument('-r', '--recursive', action='store_true', 
+					help='Recursively parse any directories')
+parser.add_argument('-m','--min', nargs=1, default=[4], type=int,
+					help='Minimum number of printable characters to qualify as a string')
+
+args = parser.parse_args()
+file_list = parse_files(args.files, args.recursive)
+
+s_iter = iter_strings_from_file_list(file_list, args.min[0])
+if args.interactive:
+	selection = iterfzf(s_iter, multi=True)
+	if selection != None: 
+		for s in selection:
+			print(s)
+else:
+	for s in s_iter:
+		print(s)
